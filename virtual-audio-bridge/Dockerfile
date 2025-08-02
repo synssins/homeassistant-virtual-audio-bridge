@@ -8,25 +8,18 @@ RUN apk add --no-cache \
     alsa-utils \
     python3 \
     py3-pip \
-    py3-flask \
-    py3-paho-mqtt \
-    py3-requests \
-    py3-yaml \
-    py3-threading \
     bash \
     jq \
     curl \
     sox \
     ffmpeg
 
-# Install Python packages
+# Install Python packages (some may not be available as Alpine packages)
 RUN pip3 install --no-cache-dir \
     flask \
     paho-mqtt \
     requests \
-    pyyaml \
-    threading \
-    wave
+    pyyaml
 
 # Copy addon files
 COPY rootfs/ /
@@ -54,6 +47,4 @@ WORKDIR /usr/bin
 LABEL \
     io.hass.name="Virtual Audio Bridge" \
     io.hass.description="Creates virtual audio sinks that stream to network devices" \
-    io.hass.arch="${BUILD_ARCH}" \
-    io.hass.type="addon" \
-    io.hass.version="${BUILD_VERSION}"
+    io.hass.type="addon"
