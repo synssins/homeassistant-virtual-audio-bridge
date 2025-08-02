@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""
+Virtual Audio Bridge for Home Assistant
+Creates virtual audio sinks and streams them via HTTP
+"""
+
+import json
+import os
+import sys
+import time
+import subprocess
+import threading
+import logging
+from flask import Flask, Response, request
+import paho.mqtt.client as mqtt
+import yaml
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/var/log/virtual-audio-bridge/addon.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+class VirtualAudioBridge:
+    def __init__(self):
+        self.config = self.load_config()
+        self.audio_sinks = []
+        self.streaming_processes = {}
+        self.flask_apps = {}
+        self.mqtt_client = None
+        
+    def load_config(self):
+        """Load addon configuration"""
+        try:
+            with open('/data/options.json', 'r') as f:
+                config = json.load(f)
+            logger.info("Configuration loaded successfully")
+            return config
+        except Exception as e:
+            logger.error(f"Failed to load configuration: {e}")
+            sys.exit(1)
+            
+    def setup_pulseaudio(self):
+        """Initialize PulseAudio system"""
+        logger.info("Setting up PulseAudio...")
+        
+        # Start PulseAudio in system mode
+        try:
+            subprocess.run([
+                'pulseaudio', '--system', '--disallow-exit', 
+                '--disable-shm', '--exit-idle-time=-1'
+            ], check=False)
+            time.sleep(2)
+            
+            logger.info("PulseAudio started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start PulseAudio: {e}")
+            
+    def create_virtual_sink(self, sink_config):
+        """Create a virtual audio sink"""
+        sink_name = sink_config['sink_name']
+        description = sink_config.get('description', f"Virtual Audio Sink {sink_name}")
+        sample_rate = sink_config.get('sample_rate', 44100)
+        channels = sink_config.get('channels', 2)
+        
+        logger.info(f"Creating virtual sink: {sink_name}")
+        
+        try:
+            # Create null sink
+            cmd = [
+                'pactl', 'load-module', 'module-null-sink',
+                f'sink_name={sink_name}',
+                f'sink_properties=device.description="{description}"',
+                f'rate={sample_rate}',
+                f'channels={channels}'
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                module_id = result.stdout.strip()
+                logger.info(f"Created sink {sink_name} with module ID {module_id}")
+                
+                # Store sink info
+                sink_info = {
+                    'config': sink_config,
+                    'module_id': module_id,
+                    'monitor_source': f"{sink_name}.monitor"
+                }
+                self.audio_sinks.append(sink_info)
+                return sink_info
+            else:
+                logger.error(f"Failed to create sink {sink_name}: {result.stderr}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error creating virtual sink {sink_name}: {e}")
+            return None
+            
+    def create_streaming_server(self, sink_info):
+        """Create HTTP streaming server for a sink"""
+        config = sink_info['config']
+        sink_name = config['sink_name']
+        port = config['stream_port']
+        stream_path = config.get('stream_path', f'/stream')
+        
+        logger.info(f"Creating streaming server for {sink_name} on port {port}")
+        
+        # Create Flask app for this sink
+        app = Flask(f"stream_{sink_name}")
+        
+        @app.route(stream_path)
+        def stream_audio():
+            def generate():
+                # Start parec process to capture audio
+                cmd = [
+                    'parec', 
+                    '-d', sink_info['monitor_source'],
+                    '--file-format=wav',
+                    f'--rate={config.get("sample_rate", 44100)}',
+                    f'--channels={config.get("channels", 2)}'
+                ]
+                
+                try:
+                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    
+                    while True:
+                        data = process.stdout.read(8192)
+                        if not data:
+                            break
+                        yield data
+                        
+                except Exception as e:
+                    logger.error(f"Error streaming from {sink_name}: {e}")
+                finally:
+                    if 'process' in locals():
+                        process.terminate()
+                        
+            return Response(
+                generate(),
+                mimetype='audio/wav',
+                headers={
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            )
+            
+        @app.route('/info')
+        def sink_info_endpoint():
+            return {
+                'sink_name': sink_name,
+                'description': config.get('description', ''),
+                'sample_rate': config.get('sample_rate', 44100),
+                'channels': config.get('channels', 2),
+                'stream_url': f"http://homeassistant.local:{port}{stream_path}",
+                'status': 'active'
+            }
+            
+        # Store the app
+        self.flask_apps[sink_name] = app
+        
+        # Start the server in a thread
+        def run_server():
+            app.run(host='0.0.0.0', port=port, threaded=True, debug=False)
+            
+        server_thread = threading.Thread(target=run_server, daemon=True)
+        server_thread.start()
+        
+        logger.info(f"Streaming server for {sink_name} started on port {port}")
+        
+    def setup_mqtt(self):
+        """Setup MQTT for Home Assistant discovery"""
+        if not self.config.get('mqtt_discovery', True):
+            return
+            
+        logger.info("Setting up MQTT discovery...")
+        
+        try:
+            self.mqtt_client = mqtt.Client()
+            
+            # Connect to Home Assistant's MQTT broker
+            self.mqtt_client.connect("core-mosquitto", 1883, 60)
+            self.mqtt_client.loop_start()
+            
+            logger.info("MQTT client connected")
+        except Exception as e:
+            logger.error(f"Failed to setup MQTT: {e}")
+            
+    def create_ha_media_players(self):
+        """Create Home Assistant media player entities"""
+        if not self.config.get('auto_create_media_players', True) or not self.mqtt_client:
+            return
+            
+        logger.info("Creating Home Assistant media player entities...")
+        
+        for sink_info in self.audio_sinks:
+            config = sink_info['config']
+            sink_name = config['sink_name']
+            port = config['stream_port']
+            stream_path = config.get('stream_path', '/stream')
+            
+            # Create media player discovery payload
+            discovery_payload = {
+                "name": config['name'],
+                "unique_id": f"virtual_audio_bridge_{sink_name}",
+                "device": {
+                    "identifiers": [f"virtual_audio_bridge_{sink_name}"],
+                    "name": config['name'],
+                    "manufacturer": "Virtual Audio Bridge",
+                    "model": "Virtual Audio Sink",
+                    "sw_version": "1.0.0"
+                },
+                "media_content_type": "audio/wav",
+                "media_url": f"http://homeassistant.local:{port}{stream_path}",
+                "state_topic": f"homeassistant/media_player/virtual_audio_bridge_{sink_name}/state",
+                "availability_topic": f"homeassistant/media_player/virtual_audio_bridge_{sink_name}/availability"
+            }
+            
+            # Publish discovery message
+            discovery_topic = f"homeassistant/media_player/virtual_audio_bridge_{sink_name}/config"
+            self.mqtt_client.publish(discovery_topic, json.dumps(discovery_payload), retain=True)
+            
+            # Publish availability
+            availability_topic = f"homeassistant/media_player/virtual_audio_bridge_{sink_name}/availability"
+            self.mqtt_client.publish(availability_topic, "online", retain=True)
+            
+            logger.info(f"Created media player entity for {sink_name}")
+            
+    def run(self):
+        """Main run method"""
+        logger.info("Starting Virtual Audio Bridge...")
+        
+        # Setup PulseAudio
+        self.setup_pulseaudio()
+        
+        # Create virtual sinks
+        for sink_config in self.config['audio_sinks']:
+            sink_info = self.create_virtual_sink(sink_config)
+            if sink_info:
+                self.create_streaming_server(sink_info)
+                
+        # Setup MQTT and Home Assistant integration
+        self.setup_mqtt()
+        time.sleep(2)  # Wait for MQTT connection
+        self.create_ha_media_players()
+        
+        logger.info("Virtual Audio Bridge started successfully")
+        logger.info(f"Created {len(self.audio_sinks)} virtual audio sinks")
+        
+        # Keep the main thread alive
+        try:
+            while True:
+                time.sleep(10)
+                # Health check could go here
+        except KeyboardInterrupt:
+            logger.info("Shutting down Virtual Audio Bridge...")
+            self.cleanup()
+            
+    def cleanup(self):
+        """Cleanup resources"""
+        logger.info("Cleaning up resources...")
+        
+        # Unload PulseAudio modules
+        for sink_info in self.audio_sinks:
+            try:
+                subprocess.run(['pactl', 'unload-module', sink_info['module_id']], 
+                             check=False)
+            except:
+                pass
+                
+        # Disconnect MQTT
+        if self.mqtt_client:
+            self.mqtt_client.loop_stop()
+            self.mqtt_client.disconnect()
+
+if __name__ == "__main__":
+    bridge = VirtualAudioBridge()
+    bridge.run()

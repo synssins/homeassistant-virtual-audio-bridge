@@ -1,0 +1,15 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Cleanup Virtual Audio Bridge service
+# ==============================================================================
+
+bashio::log.info "Virtual Audio Bridge service stopped"
+
+# Kill any remaining processes
+pkill -f "virtual-audio-bridge" || true
+pkill -f "parec" || true
+
+# Clean up temporary files
+rm -f /tmp/audio-streams/* || true
+
+bashio::log.info "Cleanup completed"

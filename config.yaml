@@ -1,0 +1,58 @@
+name: Virtual Audio Bridge
+version: "1.0.0"
+slug: virtual-audio-bridge
+description: "Creates virtual audio sinks that stream to network devices via HTTP"
+url: "https://github.com/YOUR_USERNAME/homeassistant-virtual-audio-bridge"
+arch:
+  - armhf
+  - armv7
+  - aarch64
+  - amd64
+  - i386
+startup: system
+boot: auto
+init: false
+hassio_api: true
+homeassistant_api: true
+host_network: true
+privileged:
+  - SYS_ADMIN
+audio: true
+devices:
+  - /dev/snd
+map:
+  - addon_config:rw
+options:
+  audio_sinks:
+    - name: "Virtual Sink 1"
+      sink_name: "virtual_sink_1"
+      description: "Virtual Audio Sink 1"
+      sample_rate: 44100
+      channels: 2
+      stream_port: 8765
+      stream_path: "/stream1"
+    - name: "Virtual Sink 2" 
+      sink_name: "virtual_sink_2"
+      description: "Virtual Audio Sink 2"
+      sample_rate: 44100
+      channels: 2
+      stream_port: 8766
+      stream_path: "/stream2"
+  stream_format: "wav"
+  stream_quality: "cd"
+  auto_create_media_players: true
+  mqtt_discovery: true
+schema:
+  audio_sinks:
+    - name: str
+      sink_name: str
+      description: str?
+      sample_rate: int(8000,192000)?
+      channels: int(1,8)?
+      stream_port: int(8000,65535)
+      stream_path: str?
+  stream_format: list(wav|mp3|flac)?
+  stream_quality: list(low|medium|high|cd)?
+  auto_create_media_players: bool?
+  mqtt_discovery: bool?
+image: "ghcr.io/YOUR_USERNAME/virtual-audio-bridge-{arch}"

@@ -1,0 +1,19 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Start Virtual Audio Bridge service
+# ==============================================================================
+
+# Wait for Home Assistant to be ready
+bashio::log.info "Waiting for Home Assistant..."
+bashio::net.wait_for 8123
+
+# Create log directory
+mkdir -p /var/log/virtual-audio-bridge
+
+# Set up environment
+export PULSE_SERVER="unix:/tmp/pulse-socket"
+
+bashio::log.info "Starting Virtual Audio Bridge..."
+
+# Run the main application
+exec python3 /usr/bin/virtual-audio-bridge
