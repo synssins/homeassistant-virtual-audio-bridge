@@ -2,7 +2,7 @@ name: Virtual Audio Bridge
 version: "1.0.0"
 slug: virtual-audio-bridge
 description: "Creates virtual audio sinks that stream to network devices via HTTP"
-url: "https://github.com/YOUR_USERNAME/homeassistant-virtual-audio-bridge"
+url: "https://github.com/synssins/homeassistant-virtual-audio-bridge"
 arch:
   - armhf
   - armv7
