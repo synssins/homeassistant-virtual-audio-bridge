@@ -1,4 +1,0 @@
-name: "Virtual Audio Bridge Add-on Repository"
-url: "https://github.com/synssins/homeassistant-virtual-audio-bridge"
-maintainer: "synssins <synssins@gmail.com>"
-description: "Home Assistant add-on for creating virtual audio sinks that stream to network devices"
