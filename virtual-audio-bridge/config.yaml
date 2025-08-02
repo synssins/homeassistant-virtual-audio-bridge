@@ -55,5 +55,3 @@ schema:
   stream_quality: list(low|medium|high|cd)?
   auto_create_media_players: bool?
   mqtt_discovery: bool?
-image: "# In config.yaml, change this line:
-image: "ghcr.io/synssins/virtual-audio-bridge-{arch}"
