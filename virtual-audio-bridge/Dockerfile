@@ -8,18 +8,15 @@ RUN apk add --no-cache \
     alsa-utils \
     python3 \
     py3-pip \
+    py3-flask \
+    py3-paho-mqtt \
+    py3-requests \
+    py3-yaml \
     bash \
     jq \
     curl \
     sox \
     ffmpeg
-
-# Install Python packages (some may not be available as Alpine packages)
-RUN pip3 install --no-cache-dir \
-    flask \
-    paho-mqtt \
-    requests \
-    pyyaml
 
 # Copy addon files
 COPY rootfs/ /
