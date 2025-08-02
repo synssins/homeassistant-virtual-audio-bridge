@@ -7,7 +7,7 @@ build_from:
 labels:
   org.opencontainers.image.title: "Virtual Audio Bridge"
   org.opencontainers.image.description: "Creates virtual audio sinks that stream to network devices via HTTP"
-  org.opencontainers.image.source: "https://github.com/YOUR_USERNAME/homeassistant-virtual-audio-bridge"
+  org.opencontainers.image.source: "https://github.com/synssins/homeassistant-virtual-audio-bridge"
   org.opencontainers.image.licenses: "MIT"
 args:
   TEMPIO_VERSION: "2021.09.0"
